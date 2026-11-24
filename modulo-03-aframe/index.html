@@ -5,120 +5,422 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Módulo 03 · A-Frame · Mirador de la camanchaca</title>
   <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
+  <style>
+    body { margin: 0; font-family: system-ui, sans-serif; }
+    #intro {
+      position: fixed; inset: 0; z-index: 10; display: grid; place-items: center;
+      background: rgba(233, 226, 212, .75); backdrop-filter: blur(4px); padding: 20px;
+    }
+    #intro .card {
+      max-width: 520px; background: #f4ede1; color: #2b2420; border-radius: 20px;
+      padding: 30px 34px; box-shadow: 0 20px 60px rgba(43,36,32,.3);
+    }
+    .kicker { font-size: 12px; letter-spacing: .14em; text-transform: uppercase; color: #b5562e; font-weight: 700; }
+    #intro h1 { font-family: Georgia, serif; font-weight: 400; font-size: 40px; margin: 6px 0 12px; }
+    #intro p { font-family: Georgia, serif; font-size: 18px; line-height: 1.45; margin: 0 0 10px; }
+    #intro ul { padding-left: 20px; margin: 12px 0 18px; line-height: 1.6; }
+    #intro button {
+      font: 600 17px system-ui; border-radius: 999px; padding: 13px 26px; border: 0;
+      background: #2b2420; color: #fff; cursor: pointer;
+    }
+    #intro button:hover { background: #b5562e; }
+    .hidden { display: none !important; }
+  </style>
+
   <script>
-    // Hotspot: al mirarlo fijo (gaze) o hacer clic, muestra/oculta su panel de información
-    AFRAME.registerComponent('hotspot', {
-      schema: { panel: { type: 'selector' } },
+    var THREE = AFRAME.THREE;
+    const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+
+    // Relieve: mar al frente (z negativo), cerro costero donde está el visitante
+    function alturaEn(x, z) {
+      const costa = smooth(-48, -26, z);
+      const cerro = 7 * Math.exp(-(x * x + (z + 4) * (z + 4)) / (2 * 15 * 15));
+      const lomas = Math.sin(x * 0.18) * Math.cos(z * 0.15) * 0.8 + Math.sin(x * 0.06 + z * 0.09) * 2;
+      return -3 + costa * (5 + lomas) + cerro;
+    }
+
+    // Dibuja una tarjeta (título + texto) en un canvas: así se ven bien las tildes y la ñ
+    function dibujarTarjeta(ctx, w, h, titulo, cuerpo, etiqueta) {
+      ctx.clearRect(0, 0, w, h);
+      const r = 36;
+      ctx.fillStyle = 'rgba(244,237,225,0.96)';
+      ctx.beginPath();
+      ctx.moveTo(r, 0); ctx.arcTo(w, 0, w, h, r); ctx.arcTo(w, h, 0, h, r); ctx.arcTo(0, h, 0, 0, r); ctx.arcTo(0, 0, w, 0, r);
+      ctx.fill();
+      ctx.fillStyle = '#b5562e';
+      ctx.fillRect(0, 0, w, 10);
+      let y = 70;
+      if (etiqueta) {
+        ctx.font = '700 30px system-ui, sans-serif';
+        ctx.fillStyle = '#b5562e';
+        ctx.fillText(etiqueta.toUpperCase(), 50, y);
+        y += 72;
+      }
+      ctx.font = '400 64px Georgia, serif';
+      ctx.fillStyle = '#2b2420';
+      ctx.fillText(titulo, 50, y);
+      y += 66;
+      ctx.font = '400 42px Georgia, serif';
+      ctx.fillStyle = '#3d332c';
+      const palabras = cuerpo.split(' ');
+      let linea = '';
+      for (const p of palabras) {
+        const prueba = linea ? linea + ' ' + p : p;
+        if (ctx.measureText(prueba).width > w - 100) {
+          ctx.fillText(linea, 50, y); y += 54; linea = p;
+        } else linea = prueba;
+      }
+      if (linea) ctx.fillText(linea, 50, y);
+    }
+
+    function puntoSuave() {
+      const c = document.createElement('canvas'); c.width = c.height = 64;
+      const g = c.getContext('2d'), grd = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+      grd.addColorStop(0, 'rgba(255,255,255,1)'); grd.addColorStop(.45, 'rgba(255,255,255,.5)'); grd.addColorStop(1, 'rgba(255,255,255,0)');
+      g.fillStyle = grd; g.fillRect(0, 0, 64, 64);
+      return new THREE.CanvasTexture(c);
+    }
+    const PUNTO = puntoSuave();
+
+    // ---------- Cielo con degradado ----------
+    AFRAME.registerComponent('cielo', {
       init() {
-        const panel = this.data.panel;
-        panel.setAttribute('visible', false);
-        this.el.addEventListener('click', () => {
-          const show = !panel.getAttribute('visible');
-          document.querySelectorAll('.panel').forEach((p) => p.setAttribute('visible', false));
-          panel.setAttribute('visible', show);
-        });
-        this.el.addEventListener('mouseenter', () => this.el.setAttribute('scale', '1.25 1.25 1.25'));
-        this.el.addEventListener('mouseleave', () => this.el.setAttribute('scale', '1 1 1'));
+        const c = document.createElement('canvas'); c.width = 4; c.height = 256;
+        const g = c.getContext('2d'), grd = g.createLinearGradient(0, 0, 0, 256);
+        grd.addColorStop(0, '#6f97b8'); grd.addColorStop(0.45, '#b9c9d2'); grd.addColorStop(0.5, '#e6ddcd'); grd.addColorStop(1, '#e6ddcd');
+        g.fillStyle = grd; g.fillRect(0, 0, 4, 256);
+        const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
+        const m = new THREE.Mesh(new THREE.SphereGeometry(400, 32, 16),
+          new THREE.MeshBasicMaterial({ map: tex, side: THREE.BackSide, fog: false, depthWrite: false }));
+        this.el.setObject3D('mesh', m);
       },
     });
 
-    // Niebla que avanza desde el mar
-    AFRAME.registerComponent('neblina', {
-      schema: { cantidad: { default: 60 } },
+    // ---------- Terreno low-poly ----------
+    AFRAME.registerComponent('terreno', {
       init() {
-        this.puffs = [];
-        for (let i = 0; i < this.data.cantidad; i++) {
-          const e = document.createElement('a-sphere');
-          e.setAttribute('radius', 0.6 + Math.random() * 0.9);
-          e.setAttribute('material', 'color: #ffffff; opacity: 0.12; transparent: true; shader: flat');
-          e.object3D.position.set(-30 + Math.random() * 40, 2 + Math.random() * 3, -14 + Math.random() * 10);
-          e.object3D.userData.v = 0.6 + Math.random() * 0.8;
-          this.el.appendChild(e);
-          this.puffs.push(e.object3D);
+        const geo = new THREE.PlaneGeometry(260, 220, 130, 110);
+        geo.rotateX(-Math.PI / 2);
+        const pos = geo.attributes.position, colores = new Float32Array(pos.count * 3), c = new THREE.Color();
+        const arena = ['#d2b48a', '#c19a6b', '#b08359'].map((h) => new THREE.Color(h));
+        for (let i = 0; i < pos.count; i++) {
+          const x = pos.getX(i), z = pos.getZ(i), y = alturaEn(x, z);
+          pos.setY(i, y);
+          c.copy(arena[Math.floor(Math.random() * 3)]);
+          if (y < 0.5) c.lerp(new THREE.Color('#e3cfa8'), 0.7);
+          c.toArray(colores, i * 3);
         }
+        geo.setAttribute('color', new THREE.BufferAttribute(colores, 3));
+        geo.computeVertexNormals();
+        this.el.setObject3D('mesh', new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.95 })));
+      },
+    });
+
+    // ---------- Mar con oleaje ----------
+    AFRAME.registerComponent('mar', {
+      init() {
+        this.geo = new THREE.PlaneGeometry(500, 300, 80, 50);
+        this.geo.rotateX(-Math.PI / 2);
+        this.base = this.geo.attributes.position.array.slice();
+        const m = new THREE.Mesh(this.geo, new THREE.MeshStandardMaterial({ color: '#4f7f96', roughness: 0.35, metalness: 0.15, flatShading: true }));
+        m.position.set(0, 0, -150);
+        this.el.setObject3D('mesh', m);
+      },
+      tick(t) {
+        const p = this.geo.attributes.position.array, s = t / 1000;
+        for (let i = 0; i < p.length; i += 3) {
+          p[i + 1] = Math.sin(this.base[i] * 0.08 + s * 1.2) * 0.35 + Math.cos(this.base[i + 2] * 0.1 + s) * 0.3;
+        }
+        this.geo.attributes.position.needsUpdate = true;
+        this.geo.computeVertexNormals();
+      },
+    });
+
+    // ---------- Camanchaca: partículas que suben desde el mar ----------
+    AFRAME.registerComponent('camanchaca', {
+      schema: { cantidad: { default: 1400 } },
+      init() {
+        const n = this.data.cantidad;
+        this.pos = new Float32Array(n * 3); this.vel = new Float32Array(n);
+        for (let i = 0; i < n; i++) this.reset(i, true);
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute('position', new THREE.BufferAttribute(this.pos, 3));
+        this.geo = geo;
+        const pts = new THREE.Points(geo, new THREE.PointsMaterial({ map: PUNTO, size: 3.2, transparent: true, opacity: 0.35, depthWrite: false, color: '#ffffff' }));
+        pts.frustumCulled = false;
+        this.el.setObject3D('mesh', pts);
+      },
+      reset(i, cualquiera) {
+        this.pos[i * 3] = (Math.random() * 2 - 1) * 45;
+        this.pos[i * 3 + 1] = 3 + Math.random() * 9;
+        this.pos[i * 3 + 2] = cualquiera ? -100 + Math.random() * 120 : -100 - Math.random() * 10;
+        this.vel[i] = 2 + Math.random() * 2;
       },
       tick(t, dt) {
-        const s = dt / 1000;
-        for (const p of this.puffs) {
-          p.position.x += p.userData.v * s;
-          if (p.position.x > 12) p.position.x = -30;
+        const s = Math.min(dt, 50) / 1000;
+        for (let i = 0; i < this.vel.length; i++) {
+          this.pos[i * 3 + 2] += this.vel[i] * s;
+          this.pos[i * 3] += Math.sin(t / 1500 + i) * 0.01;
+          if (this.pos[i * 3 + 2] > -1) this.reset(i, false);
         }
+        this.geo.attributes.position.needsUpdate = true;
+      },
+    });
+
+    // ---------- Atrapanieblas con gotas y estanque ----------
+    AFRAME.registerComponent('atrapanieblas', {
+      init() {
+        const g = new THREE.Group(), W = 6, H = 3.6, BASE = 1.1;
+        const madera = new THREE.MeshStandardMaterial({ color: '#5b4636', roughness: 0.9 });
+        for (const s of [-1, 1]) {
+          const poste = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, BASE + H + 0.5, 8), madera);
+          poste.position.set(s * W / 2, (BASE + H + 0.5) / 2, 0); g.add(poste);
+        }
+        const malla = new THREE.Mesh(new THREE.PlaneGeometry(W, H), new THREE.MeshStandardMaterial({ color: '#22302a', transparent: true, opacity: 0.5, side: THREE.DoubleSide, depthWrite: false }));
+        malla.position.y = BASE + H / 2; g.add(malla);
+        const lineas = [];
+        for (let x = -W / 2; x <= W / 2 + 1e-6; x += 0.25) lineas.push(x, BASE, 0, x, BASE + H, 0);
+        for (let y = 0; y <= H + 1e-6; y += 0.25) lineas.push(-W / 2, BASE + y, 0, W / 2, BASE + y, 0);
+        const lg = new THREE.BufferGeometry(); lg.setAttribute('position', new THREE.Float32BufferAttribute(lineas, 3));
+        g.add(new THREE.LineSegments(lg, new THREE.LineBasicMaterial({ color: '#1a2420', transparent: true, opacity: 0.7 })));
+        const canaleta = new THREE.Mesh(new THREE.BoxGeometry(W, 0.15, 0.3), new THREE.MeshStandardMaterial({ color: '#9aa3a8', metalness: 0.4 }));
+        canaleta.position.y = BASE - 0.08; g.add(canaleta);
+
+        // Estanque
+        const est = new THREE.Group(); est.position.set(W / 2 + 1.4, 0, 0.8); g.add(est);
+        const casco = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 0.9, 1.6, 24, 1, true),
+          new THREE.MeshStandardMaterial({ color: '#e8eef0', transparent: true, opacity: 0.35, side: THREE.DoubleSide, depthWrite: false }));
+        casco.position.y = 0.8; est.add(casco);
+        const ag = new THREE.CylinderGeometry(0.85, 0.85, 1, 24); ag.translate(0, 0.5, 0);
+        this.agua = new THREE.Mesh(ag, new THREE.MeshStandardMaterial({ color: '#3d8fd1', transparent: true, opacity: 0.85 }));
+        this.agua.scale.y = 0.15; est.add(this.agua);
+        this.nivel = 0.15; this.nivelMeta = 0.15;
+
+        // Gotas que bajan por la malla
+        this.N = 70; this.gotas = new Float32Array(this.N * 3); this.vg = new Float32Array(this.N);
+        for (let i = 0; i < this.N; i++) this.nuevaGota(i, true);
+        this.gg = new THREE.BufferGeometry(); this.gg.setAttribute('position', new THREE.BufferAttribute(this.gotas, 3));
+        const pg = new THREE.Points(this.gg, new THREE.PointsMaterial({ map: PUNTO, size: 0.22, color: '#cfeeff', transparent: true, depthWrite: false }));
+        pg.frustumCulled = false; g.add(pg);
+        this.BASE = BASE; this.H = H; this.W = W;
+        this.el.setObject3D('mesh', g);
+        this.el.sceneEl.addEventListener('llenar-estanque', () => (this.nivelMeta = 1.5));
+      },
+      nuevaGota(i, cualquiera) {
+        this.gotas[i * 3] = (Math.random() - 0.5) * 5.8;
+        this.gotas[i * 3 + 1] = 1.1 + (cualquiera ? Math.random() : 1) * 3.6;
+        this.gotas[i * 3 + 2] = 0.03;
+        this.vg[i] = 0.15 + Math.random() * 0.4;
+      },
+      tick(t, dt) {
+        const s = Math.min(dt, 50) / 1000;
+        for (let i = 0; i < this.N; i++) {
+          this.gotas[i * 3 + 1] -= this.vg[i] * s;
+          if (this.gotas[i * 3 + 1] < this.BASE) this.nuevaGota(i, false);
+        }
+        this.gg.attributes.position.needsUpdate = true;
+        this.nivel += (this.nivelMeta - this.nivel) * s * 0.6;
+        this.agua.scale.y = this.nivel + Math.sin(t / 900) * 0.02;
+      },
+    });
+
+    // ---------- Panel de texto (canvas) ----------
+    AFRAME.registerComponent('panel', {
+      schema: { titulo: { default: '' }, texto: { default: '' }, etiqueta: { default: '' }, ancho: { default: 4.2 }, alto: { default: 520 } },
+      init() {
+        const c = document.createElement('canvas'); c.width = 1024; c.height = this.data.alto;
+        this.canvas = c;
+        dibujarTarjeta(c.getContext('2d'), c.width, c.height, this.data.titulo, this.data.texto, this.data.etiqueta);
+        const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
+        this.tex = tex;
+        const a = this.data.ancho;
+        this.el.setObject3D('mesh', new THREE.Mesh(new THREE.PlaneGeometry(a, a * c.height / c.width),
+          new THREE.MeshBasicMaterial({ map: tex, transparent: true, side: THREE.DoubleSide, fog: false })));
+      },
+      redibujar(titulo, texto, etiqueta) {
+        dibujarTarjeta(this.canvas.getContext('2d'), this.canvas.width, this.canvas.height, titulo, texto, etiqueta);
+        this.tex.needsUpdate = true;
+      },
+    });
+
+    // Mira siempre hacia la cámara (solo gira en Y)
+    AFRAME.registerComponent('mirar-camara', {
+      tick() {
+        const cam = this.el.sceneEl.camera; if (!cam) return;
+        const p = new THREE.Vector3(); cam.getWorldPosition(p);
+        const o = this.el.object3D, w = new THREE.Vector3(); o.getWorldPosition(w);
+        o.rotation.y = Math.atan2(p.x - w.x, p.z - w.z);
+      },
+    });
+
+    // ---------- Hotspot: mirar fijo o clic abre su panel ----------
+    AFRAME.registerComponent('hotspot', {
+      schema: { panel: { type: 'selector' } },
+      init() {
+        const el = this.el, panel = this.data.panel;
+        panel.setAttribute('visible', false);
+        el.addEventListener('click', () => {
+          const mostrar = !panel.getAttribute('visible');
+          document.querySelectorAll('.panel').forEach((p) => p.setAttribute('visible', false));
+          panel.setAttribute('visible', mostrar);
+          if (mostrar && !el.dataset.visto) {
+            el.dataset.visto = '1';
+            el.setAttribute('material', 'color', '#3d8fd1');
+            el.sceneEl.emit('descubierto');
+          }
+        });
+        el.addEventListener('mouseenter', () => el.setAttribute('scale', '1.3 1.3 1.3'));
+        el.addEventListener('mouseleave', () => el.setAttribute('scale', '1 1 1'));
+      },
+    });
+
+    // ---------- Recorrido: contador y final ----------
+    AFRAME.registerComponent('recorrido', {
+      schema: { total: { default: 4 } },
+      init() {
+        this.vistos = 0;
+        this.hud = document.querySelector('#hud');
+        this.el.addEventListener('descubierto', () => {
+          this.vistos++;
+          const fin = this.vistos >= this.data.total;
+          this.hud.components.panel.redibujar(
+            fin ? '¡Recorrido completo!' : `${this.vistos} de ${this.data.total}`,
+            fin ? 'Mira hacia el estanque: el agua de la niebla hace florecer el cerro.' : 'Busca los puntos naranjos y míralos fijo para descubrir la historia.',
+            'Mirador de la camanchaca');
+          if (fin) {
+            this.el.emit('llenar-estanque');
+            document.querySelector('#flores').emit('florecer');
+            setTimeout(() => document.querySelector('#final').setAttribute('visible', true), 2500);
+          }
+        });
+      },
+    });
+
+    // ---------- Flores que aparecen al final ----------
+    AFRAME.registerComponent('flores', {
+      schema: { cantidad: { default: 260 } },
+      init() {
+        const n = this.data.cantidad;
+        const mesh = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(0.16, 0),
+          new THREE.MeshStandardMaterial({ flatShading: true }), n);
+        const colores = ['#d9539a', '#b35bc9', '#f2c94c', '#f28c6a', '#ffffff', '#6a9a48'];
+        this.items = [];
+        const c = new THREE.Color();
+        for (let i = 0; i < n; i++) {
+          let a, r, x, z;
+          do { a = Math.random() * Math.PI * 2; r = 2 + Math.random() * 16; x = Math.cos(a) * r; z = -4 + Math.sin(a) * r; }
+          while (Math.hypot(x, z - 3) < 4.5);
+          this.items.push({ p: new THREE.Vector3(x, alturaEn(x, z) + 0.1, z), d: r, k: 0.5 + Math.random() * 0.6 });
+          mesh.setColorAt(i, c.set(colores[i % colores.length]));
+        }
+        this.mesh = mesh; this.t = -1;
+        this.aplicar(0);
+        this.el.setObject3D('mesh', mesh);
+        this.el.addEventListener('florecer', () => (this.t = 0));
+      },
+      aplicar(radio) {
+        const m = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3();
+        this.items.forEach((it, i) => {
+          s.setScalar(Math.max(0.0001, smooth(it.d, it.d + 2, radio) * it.k));
+          m.compose(it.p, q, s); this.mesh.setMatrixAt(i, m);
+        });
+        this.mesh.instanceMatrix.needsUpdate = true;
+      },
+      tick(t, dt) {
+        if (this.t < 0 || this.t > 1) return;
+        this.t += dt / 6000;
+        this.aplicar(this.t * 20);
+      },
+    });
+
+    // Coloca una entidad sobre el terreno
+    AFRAME.registerComponent('sobre-terreno', {
+      schema: { y: { default: 0 } },
+      init() {
+        const p = this.el.object3D.position;
+        p.y = alturaEn(p.x, p.z) + this.data.y;
       },
     });
   </script>
 </head>
 <body>
-  <a-scene background="color: #cfd8dc" fog="type: linear; color: #e6ddcd; near: 10; far: 45"
-           renderer="antialias: true">
+  <section id="intro">
+    <div class="card">
+      <span class="kicker">Módulo 03 · Realidad virtual 360° · A-Frame</span>
+      <h1>Mirador de la camanchaca</h1>
+      <p>Estás en un cerro de la costa del norte de Chile. Desde el mar avanza la niebla, y frente a ti hay un atrapanieblas.</p>
+      <ul>
+        <li><b>Mira alrededor</b>: arrastra con el mouse, mueve el celular o usa un visor VR.</li>
+        <li><b>Mira fijo un punto naranjo</b> (o haz clic) para descubrir la historia.</li>
+        <li>Descubre los <b>4 puntos</b> para completar el recorrido.</li>
+      </ul>
+      <button id="entrar">Entrar al mirador</button>
+    </div>
+  </section>
 
+  <a-scene fog="type: linear; color: #e6ddcd; near: 25; far: 130" renderer="antialias: true; colorManagement: true"
+           recorrido="total: 4" vr-mode-ui="enabled: true">
     <a-assets>
-      <!-- Audio ambiente opcional: agrega un archivo viento.mp3 a esta carpeta -->
       <audio id="viento" src="viento.mp3" preload="auto"></audio>
     </a-assets>
 
-    <!-- Cámara con cursor de mirada: mirar 1.5 s sobre un hotspot equivale a un clic -->
-    <a-entity position="0 1.6 0">
-      <a-camera look-controls wasd-controls="enabled: false">
+    <a-entity cielo></a-entity>
+    <a-entity terreno></a-entity>
+    <a-entity mar></a-entity>
+    <a-entity camanchaca="cantidad: 1400"></a-entity>
+    <a-entity position="0 0 -6" sobre-terreno="y: -0.1" atrapanieblas></a-entity>
+    <a-entity id="flores" flores></a-entity>
+
+    <a-light type="hemisphere" color="#fdf3e1" ground-color="#8a6f52" intensity="1.1"></a-light>
+    <a-light type="directional" color="#fff1d6" position="6 10 4" intensity="1.4"></a-light>
+
+    <!-- Visitante -->
+    <a-entity id="rig" position="0 0 3" sobre-terreno="y: 0">
+      <a-camera look-controls wasd-controls="enabled: false" position="0 1.6 0">
         <a-cursor raycaster="objects: .clickable" fuse="true" fuse-timeout="1500" color="#b5562e"
                   animation__fusing="property: scale; startEvents: fusing; from: 1 1 1; to: 0.3 0.3 0.3; dur: 1500"
                   animation__leave="property: scale; startEvents: mouseleave; to: 1 1 1; dur: 150"></a-cursor>
+        <a-entity id="hud" position="0 -0.6 -1.4" scale="0.3 0.3 0.3"
+                  panel="titulo: 0 de 4; texto: Busca los puntos naranjos y míralos fijo para descubrir la historia.; etiqueta: Mirador de la camanchaca; ancho: 2; alto: 330"></a-entity>
       </a-camera>
     </a-entity>
 
-    <!-- Entorno: desierto, mar y cerros -->
-    <a-plane rotation="-90 0 0" width="120" height="120" color="#d2b48a"></a-plane>
-    <a-plane rotation="-90 0 0" width="60" height="120" position="-50 0.02 0" color="#4f7f96"></a-plane>
-    <a-cone radius-bottom="9" radius-top="0" height="6" position="6 0 -16" color="#b98f62"></a-cone>
-    <a-cone radius-bottom="12" radius-top="0" height="8" position="20 0 -10" color="#c8a77a"></a-cone>
-    <a-cone radius-bottom="7" radius-top="0" height="5" position="-4 0 -22" color="#a87a52"></a-cone>
-    <a-entity neblina="cantidad: 70"></a-entity>
+    <!-- Hotspots -->
+    <a-sphere class="clickable" radius="0.28" color="#b5562e" transparent="true" position="-7 0 -14" sobre-terreno="y: 4"
+              hotspot="panel: #p1" animation="property: material.opacity; from: 1; to: 0.55; dir: alternate; loop: true; dur: 800"></a-sphere>
+    <a-entity id="p1" class="panel" position="-7 0 -14" sobre-terreno="y: 5.8" mirar-camara
+              panel="etiqueta: 1 · La camanchaca; titulo: Agua que flota; texto: Casi todas las mañanas una niebla espesa llega desde el Pacífico y cubre los cerros de la costa. Sus gotas son tan livianas que no alcanzan a caer como lluvia."></a-entity>
 
-    <!-- Atrapanieblas -->
-    <a-entity position="0 0 -7">
-      <a-cylinder radius="0.08" height="4.5" position="-2.5 2.25 0" color="#5b4636"></a-cylinder>
-      <a-cylinder radius="0.08" height="4.5" position="2.5 2.25 0" color="#5b4636"></a-cylinder>
-      <a-plane width="5" height="3" position="0 2.6 0" color="#22302a" opacity="0.55"
-               material="side: double; transparent: true"></a-plane>
-      <a-box width="5" height="0.15" depth="0.25" position="0 1.05 0" color="#9aa3a8"></a-box>
-      <a-cylinder radius="0.7" height="1.2" position="3.6 0.6 0.8" color="#3d8fd1" opacity="0.8"></a-cylinder>
-    </a-entity>
+    <a-sphere class="clickable" radius="0.28" color="#b5562e" transparent="true" position="0 0 -6" sobre-terreno="y: 5.7"
+              hotspot="panel: #p2" animation="property: material.opacity; from: 1; to: 0.55; dir: alternate; loop: true; dur: 800"></a-sphere>
+    <a-entity id="p2" class="panel" position="0 0 -5.6" sobre-terreno="y: 7.5" mirar-camara
+              panel="etiqueta: 2 · El inventor; titulo: Carlos Espinosa Arancibia; texto: Físico chileno. En 1956, durante una sequía en Antofagasta, pensó: si la niebla no cae, hay que salir a atraparla."></a-entity>
 
-    <!-- Hotspots (esferas que se miran o se cliquean) y sus paneles -->
-    <a-sphere class="clickable" radius="0.25" color="#b5562e" position="-3 2.2 -5"
-              hotspot="panel: #p1"
-              animation="property: material.opacity; from: 1; to: 0.5; dir: alternate; loop: true; dur: 900"></a-sphere>
-    <a-entity id="p1" class="panel" position="-3 3.3 -4.8">
-      <a-plane width="3.2" height="1.3" color="#f4ede1"></a-plane>
-      <a-text value="La camanchaca\nNiebla costera del norte de Chile. Sus gotas son tan livianas que no caen como lluvia."
-              color="#2b2420" width="3" position="-1.5 0 0.01" wrap-count="34"></a-text>
-    </a-entity>
+    <a-sphere class="clickable" radius="0.28" color="#b5562e" transparent="true" position="4.6 0 -4.6" sobre-terreno="y: 2.4"
+              hotspot="panel: #p3" animation="property: material.opacity; from: 1; to: 0.55; dir: alternate; loop: true; dur: 800"></a-sphere>
+    <a-entity id="p3" class="panel" position="5.4 0 -4" sobre-terreno="y: 4.2" mirar-camara
+              panel="etiqueta: 3 · Cómo funciona; titulo: Una malla y el viento; texto: Las gotas chocan con los hilos de la malla, se juntan, escurren a una canaleta y bajan a un estanque. No usa bombas ni electricidad."></a-entity>
 
-    <a-sphere class="clickable" radius="0.25" color="#b5562e" position="0 4.6 -6.5"
-              hotspot="panel: #p2"
-              animation="property: material.opacity; from: 1; to: 0.5; dir: alternate; loop: true; dur: 900"></a-sphere>
-    <a-entity id="p2" class="panel" position="0 5.8 -6.3">
-      <a-plane width="3.2" height="1.3" color="#f4ede1"></a-plane>
-      <a-text value="Carlos Espinosa Arancibia\nFisico chileno. Tras la sequia de 1956 en Antofagasta ideo una malla para atrapar la niebla."
-              color="#2b2420" width="3" position="-1.5 0 0.01" wrap-count="34"></a-text>
-    </a-entity>
+    <a-sphere class="clickable" radius="0.28" color="#b5562e" transparent="true" position="9 0 2" sobre-terreno="y: 2"
+              hotspot="panel: #p4" animation="property: material.opacity; from: 1; to: 0.55; dir: alternate; loop: true; dur: 800"></a-sphere>
+    <a-entity id="p4" class="panel" position="9 0 2" sobre-terreno="y: 3.8" mirar-camara
+              panel="etiqueta: 4 · El legado; titulo: Un regalo para el mundo; texto: La patente del atrapanieblas fue cedida a la UNESCO para que cualquier comunidad pudiera usarla libremente, en Chile y en zonas áridas de todo el mundo."></a-entity>
 
-    <a-sphere class="clickable" radius="0.25" color="#b5562e" position="3.6 1.9 -5.8"
-              hotspot="panel: #p3"
-              animation="property: material.opacity; from: 1; to: 0.5; dir: alternate; loop: true; dur: 900"></a-sphere>
-    <a-entity id="p3" class="panel" position="3.6 3 -5.6">
-      <a-plane width="3.2" height="1.3" color="#f4ede1"></a-plane>
-      <a-text value="Un regalo al mundo\nSu patente fue cedida a la UNESCO para que cualquier comunidad pudiera usarla libremente."
-              color="#2b2420" width="3" position="-1.5 0 0.01" wrap-count="34"></a-text>
-    </a-entity>
+    <!-- Mensaje final -->
+    <a-entity id="final" visible="false" position="0 0 -1.5" sobre-terreno="y: 3.1" mirar-camara
+              panel="etiqueta: Chile Re-Descubre; titulo: Hecho en Chile; texto: El agua estaba en el aire. Bastó una idea, una malla y el viento para que el desierto volviera a florecer.; ancho: 3"></a-entity>
 
-    <!-- Audio espacial: suena más fuerte cerca del mar (requiere viento.mp3) -->
-    <a-entity position="-12 2 -6" sound="src: #viento; autoplay: true; loop: true; volume: 1.5; positional: true"></a-entity>
-
-    <a-light type="ambient" intensity="0.7"></a-light>
-    <a-light type="directional" position="5 10 4" intensity="0.9"></a-light>
-
-    <a-text value="Mira fijo un punto naranja para descubrir la historia" align="center" color="#2b2420"
-            width="6" position="0 0.6 -4"></a-text>
+    <!-- Sonido espacial: viento desde el mar -->
+    <a-entity id="sonido" position="0 4 -40"
+              sound="src: #viento; autoplay: false; loop: true; volume: 4; positional: true; refDistance: 8; rolloffFactor: 0.6"></a-entity>
   </a-scene>
+
+  <script>
+    document.getElementById('entrar').addEventListener('click', () => {
+      document.getElementById('intro').classList.add('hidden');
+      const s = document.getElementById('sonido').components.sound;
+      if (s) s.playSound();
+    });
+  </script>
 </body>
 </html>
