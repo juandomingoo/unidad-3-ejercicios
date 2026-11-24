@@ -6,7 +6,7 @@ Ejercicios funcionales de cada módulo de la Unidad 3. Todos corren en el navega
 
 | Módulo | Tecnología | Ejercicio | Demo |
 |---|---|---|---|
-| 01 · Interacción Natural (NUI) | MediaPipe | Juego controlado con las manos y la cámara | [abrir](https://juandomingoo.github.io/unidad-3-ejercicios/modulo-01-mediapipe/) |
+| 01 · Interacción Natural (NUI) | MediaPipe Gesture Recognizer + Three.js | *Crónicas del Santuario*: RPG en 3D controlado con gestos de la mano | [abrir](https://juandomingoo.github.io/unidad-3-ejercicios/modulo-01-mediapipe/) |
 | 02 · Realidad Aumentada Web | AR.js + Three.js (A-Frame) | Atrapanieblas en tu mesa (marcador Hiro) | [abrir](https://juandomingoo.github.io/unidad-3-ejercicios/modulo-02-arjs/) |
 | 03 · Realidad Virtual 360° | A-Frame | Mirador de la camanchaca (gaze, hotspots, audio espacial) | [abrir](https://juandomingoo.github.io/unidad-3-ejercicios/modulo-03-aframe/) |
 
