@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Crónicas del Santuario · RPG con gestos</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+  <script type="importmap">
+    { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.187.0/build/three.module.js" } }
+  </script>
+</head>
+<body>
+  <canvas id="scene"></canvas>
+
+  <!-- ================= CREACIÓN DE PERSONAJE ================= -->
+  <div id="creator" class="creator">
+    <div class="cr-title">
+      <h1>Crónicas del Santuario</h1>
+      <p>Creación de personaje</p>
+    </div>
+
+    <div class="cr-panel cr-left">
+      <h2>Raza</h2>
+      <div id="raceList" class="choice-list"></div>
+      <div id="raceInfo" class="cr-info"></div>
+    </div>
+
+    <div class="cr-panel cr-right">
+      <h2>Clase</h2>
+      <div id="classList" class="choice-list"></div>
+      <div id="classInfo" class="cr-info"></div>
+    </div>
+
+    <div class="cr-bottom">
+      <div class="cr-panel cr-custom">
+        <h2>Apariencia</h2>
+        <div id="customRows" class="custom-rows"></div>
+      </div>
+      <div class="cr-panel cr-enter">
+        <label class="name-label">Nombre
+          <span class="name-row">
+            <input id="charName" maxlength="16" autocomplete="off" />
+            <button id="btnRandomName" class="icon-btn" title="Nombre aleatorio">🎲</button>
+          </span>
+        </label>
+        <button id="btnRandomAll" class="ghost">🎲 Personaje aleatorio</button>
+        <label class="cam-toggle"><input type="checkbox" id="useCam" /> <span>Jugar con gestos (cámara)</span></label>
+        <p id="mpStatus" class="mp-status">Cargando modelo de manos…</p>
+        <button id="btnEnter" class="gold-btn">Entrar al mundo</button>
+      </div>
+    </div>
+    <p class="cr-hint">Arrastra para girar al personaje</p>
+  </div>
+
+  <!-- ================= HUD DEL JUEGO ================= -->
+  <div id="hud" class="hud hidden">
+    <!-- Marco de unidad -->
+    <div class="unit-frame">
+      <div class="portrait"><span id="ufIcon">🛡️</span><span id="ufLevel" class="lvl">1</span></div>
+      <div class="uf-bars">
+        <div class="uf-name"><span id="ufName">Héroe</span> <small id="ufClass"></small></div>
+        <div class="bar hp"><span id="hpFill"></span><em id="hpText">100 / 100</em></div>
+        <div class="bar en"><span id="enFill"></span><em id="enText">Energía</em></div>
+        <div class="bar xp"><span id="xpFill"></span></div>
+      </div>
+    </div>
+
+    <!-- Minimapa y objetivos -->
+    <div class="minimap-wrap">
+      <canvas id="minimap" width="180" height="180"></canvas>
+      <div class="mm-ring"></div>
+    </div>
+    <div class="tracker">
+      <h3>Misión: El Santuario</h3>
+      <p>💎 Cristales entregados: <b id="trCrystals">0 / 8</b></p>
+      <p id="trCarry" class="tr-carry"></p>
+      <p>⚔️ Enemigos derrotados: <b id="trKills">0</b></p>
+      <p class="muted" id="trTime">0:00</p>
+    </div>
+
+    <!-- Barra de acción -->
+    <div id="actionBar" class="action-bar"></div>
+
+    <!-- Joystick de mano + cámara -->
+    <div class="hand-ui">
+      <div id="joy" class="joy">
+        <div class="joy-dead"></div>
+        <div id="joyDot" class="joy-dot"></div>
+        <span class="joy-up">▲</span><span class="joy-down">▼</span><span class="joy-left">⟲</span><span class="joy-right">⟳</span>
+      </div>
+      <div id="preview" class="preview hidden">
+        <video id="webcam" autoplay playsinline muted></video>
+        <canvas id="handCanvas"></canvas>
+        <div id="previewLabel" class="preview-label">Sin mano</div>
+      </div>
+      <button id="btnRecenter" class="small-btn">⊕ Recentrar mano</button>
+    </div>
+
+    <div id="bars" class="layer"></div>
+    <div id="ctext" class="layer"></div>
+    <div id="vignette" class="vignette"></div>
+    <div id="toast" class="toast"></div>
+    <div id="bigToast" class="big-toast"></div>
+  </div>
+
+  <!-- ================= PAUSA Y FIN ================= -->
+  <div id="pause" class="overlay hidden">
+    <div class="dialog">
+      <h2>Pausa</h2>
+      <div class="help-grid">
+        <div><b>✋ Posición de la mano</b><span>Joystick: arriba avanza, abajo retrocede, a los lados gira</span></div>
+        <div><b>✊ Puño</b><span>Ataque básico (mantén para repetir)</span></div>
+        <div><b>✌️ Victoria</b><span>Habilidad de clase</span></div>
+        <div><b>☝️ Índice</b><span>Correr</span></div>
+        <div><b>👍 Pulgar arriba</b><span>Saltar</span></div>
+        <div><b>👎 Pulgar abajo</b><span>Beber poción</span></div>
+        <div><b>🤟 Te quiero</b><span>Día / noche</span></div>
+        <div><b>Teclado</b><span>WASD · Shift correr · Espacio saltar · J/clic atacar · K habilidad · R poción · N noche · Esc pausa · clic derecho y arrastrar para girar</span></div>
+      </div>
+      <div class="dlg-buttons">
+        <button id="btnResume" class="gold-btn">Continuar</button>
+        <button id="btnToCreator" class="ghost">Volver a la creación</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="endScreen" class="overlay hidden">
+    <div class="dialog">
+      <h2 id="endTitle">Victoria</h2>
+      <p id="endText"></p>
+      <div id="endStats" class="end-stats"></div>
+      <div class="dlg-buttons">
+        <button id="btnRetry" class="gold-btn">Jugar de nuevo</button>
+        <button id="btnNewChar" class="ghost">Nuevo personaje</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
